@@ -1,0 +1,15 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{env "APPNAME"}}-https
+  namespace: {{env "REPONAME"}}
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`{{env "APPNAME"}}.{{env "ENV"}}.medialaben.no`)
+    services:
+    - name: {{env "APPNAME"}}-clusterip
+      port: 80
+  tls: {}

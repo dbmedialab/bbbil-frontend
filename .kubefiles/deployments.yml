@@ -1,0 +1,129 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{env "APPNAME"}}
+  namespace: {{env "REPONAME"}}
+spec:
+  strategy:
+    rollingUpdate:
+      maxSurge: 3
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: {{env "APPNAME"}}
+  replicas: {{env "REPLICAS"}}
+  revisionHistoryLimit: 2
+  template:
+    metadata:
+      labels:
+        app: {{env "APPNAME"}}
+      annotations:
+        prometheus.io/scrape: "true"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      # Affinity to make sure that multiple pods does not run on the same node
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # prefer to run in different datacentres
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{env "APPNAME"}}
+                topologyKey: failure-domain.beta.kubernetes.io/zone
+            # prefer to run on different "physical" nodes
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{env "APPNAME"}}
+                topologyKey: kubernetes.io/hostname
+        # prefer to run on preemptible instances
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: cloud.google.com/gke-preemptible
+                    operator: Exists
+      tolerations:
+        - key: cloud.google.com/gke-preemptible
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: app
+          image: {{env "IMAGE"}}
+          #  Resource limits for each pod. CPU
+          # over-use causes CPU-usage to get
+          # throttled. MEM over-usa causes the pod
+          # to get killed, and a new one created.
+          #  Try to focus on keeping limits and
+          # requests the same, so that the node
+          # can reserve the resources needed when
+          # it is starting up the pod.
+          resources:
+            limits:
+              cpu: "0.1"
+              memory: 150Mi
+            requests:
+              cpu: "0.1"
+              memory: 150Mi
+          env:
+            - name: JAEGER_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          envFrom:
+            - configMapRef:
+                name: {{env "APPNAME"}}
+            # #  If needed, place secrets in Vault
+            # # and reference them here.
+            # #  Secret should be names
+            # # "secret-values" in this case.
+            # - secretRef:
+            #     name: secret-values
+          ports:
+            - containerPort: {{env "PORT"}}
+              name: http-port
+          livenessProbe:
+            httpGet:
+              path: /api/v1/_healthz
+              port: http-port
+            initialDelaySeconds: 120
+            timeoutSeconds: 10
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /api/v1/_healthz
+              port: http-port
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 2
+      # #  If needed, place secret files in Vault
+      # # and reference them here.
+      # #  Secret files should be inside secret
+      # # named "secret-files" in this case. Every
+      # # record in this secret would be
+      # # accessible as file and value of record
+      # # would be file's content.
+      #     volumeMounts:
+      #       - name: secret-files-volume
+      #         mountPath: /app/certs
+      #         readOnly: true
+      # volumes:
+      #   - name: secret-files-volume
+      #     secret:
+      #       secretName: secret-files

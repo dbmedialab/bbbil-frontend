@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{env "APPNAME"}}
+  namespace: {{env "REPONAME"}}
+# Example of configuration values
+data:
+  PROJECT_NAME: "template-frontend-nextjs"
+  JAEGER_SAMPLER_TYPE: "remote"
+  JAEGER_SAMPLER_PARAM: "0.1"

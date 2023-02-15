@@ -1,0 +1,172 @@
+---
+version: 2.1
+
+jobs:
+  build_app:
+    executor: docker_executor
+    steps:
+      - checkout
+      - setup_docker
+      - docker_build_app
+      - docker_push_app
+  deploy_prod:
+    machine: true
+    steps:
+      - deployer:
+          env: prod
+  deploy_stage:
+    machine: true
+    steps:
+      - deployer:
+          env: stage
+  cypress_test:
+    description: "Run cypress E2E tests"
+    executor: cypress
+    environment:
+      NODE_OPTIONS: --max_old_space_size=4096
+      NODE_ENV: development
+    steps:
+      - checkout
+      - run:
+          name: Install OS dependencies
+          command: |
+            apt-get install -qy git
+      - run:
+          name: Install dependencies
+          command: |
+            yarn install
+      - run:
+          name: Run yarn build
+          command: |
+            yarn build
+      - run:
+          name: Run Cypress E2E tests
+          command: |
+            yarn test:e2e
+
+  jest_test:
+    description: "Run jest unit tests"
+    executor: node_executor
+    environment:
+      NODE_OPTIONS: --max_old_space_size=4096
+      NODE_ENV: development
+    steps:
+      - checkout
+      - run:
+          name: Install OS dependencies
+          command: |
+            apk add git
+      - run:
+          name: Install dependencies
+          command: |
+            yarn install
+      - run:
+          name: Run yarn test:jest
+          command: |
+            yarn test:jest
+
+workflows:
+  version: 2
+  main-workflow:
+    jobs:
+      - jest_test:
+          context: "org-global"
+      - cypress_test:
+          context: "org-global"
+          requires:
+            - jest_test
+      - build_app:
+          context: "org-global"
+      - approve_deploy_stage:
+          context: "org-global"
+          type: approval
+      - deploy_stage:
+          context: "org-global"
+          requires:
+            - cypress_test
+            - build_app
+            - approve_deploy_stage
+      - deploy_prod:
+          context: "org-global"
+          requires:
+            - cypress_test
+            - build_app
+          filters:
+            branches:
+              only:
+                - master
+
+executors:
+  cypress:
+    docker:
+      - image: cypress/browsers:node16.13.2-chrome97-ff96
+  node_executor:
+    docker:
+      - image: node:16.14.2-alpine3.15
+  docker_executor:
+    docker:
+      - image: docker:20.10.7
+    working_directory: /app
+
+commands:
+  setup_docker:
+    description: "Set up remote docker"
+    parameters:
+      docker_version:
+        type: string
+        default: "20.10.7"
+    steps:
+      - setup_remote_docker:
+          version: << parameters.docker_version >>
+          docker_layer_caching: true
+  docker_login:
+    description: "Log in to GCR"
+    steps:
+      - run:
+          name: Authenticate with GCR
+          command: echo $GCR_CREDENTIALS | docker login -u _json_key --password-stdin https://eu.gcr.io
+  docker_build_app:
+    description: "Build and tag docker image - app"
+    steps:
+      - docker_login
+      - run:
+          name: Build and tag docker image - app
+          command: |
+            MUNGED_BRANCH=$(echo $CIRCLE_BRANCH | tr '/@#' '_')
+            docker build -t app .
+            docker tag app $GCR/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            docker tag app $GCR/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME:$MUNGED_BRANCH
+  docker_push_app:
+    description: "Push docker image to GCR"
+    steps:
+      - docker_login
+      - run:
+          name: "Push docker image"
+          command: |
+            docker push --all-tags $GCR/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME
+  deployer:
+    description: "Deploy to environment"
+    parameters:
+      env:
+        type: enum
+        enum: ["stage", "prod"]
+        default: "stage"
+      namespace:
+        type: string
+        default: ""
+    steps:
+      - checkout
+      - docker_login
+      - run:
+          name: Deploy app to given environment
+          command: |
+            export NS="<<parameters.namespace>>"
+            if [ -n "$NS" ]; then
+              export OVERRIDE_NAMESPACE="$NS"
+            fi
+            export ENV="<<parameters.env>>"
+            export IMAGE=$GCR/$CIRCLE_PROJECT_REPONAME/$CIRCLE_PROJECT_REPONAME:$CIRCLE_SHA1
+            export VARNISH_IMAGE=$GCR/$CIRCLE_PROJECT_REPONAME/${CIRCLE_PROJECT_REPONAME}-varnish:$CIRCLE_SHA1
+            env | egrep -e '^(BUILD|CI_|CIRCLE|ENV=|GCR=|GH_|IMAGE=|VARNISH_IMAGE=|OVERRIDE_NAMESPACE=)' > /tmp/env-file
+            docker run -t --env-file /tmp/env-file -v /home/circleci/project/.kubefiles:/kubefiles $GCR/kubectl:production kubeval_validate
+            docker run --env-file /tmp/env-file -v /home/circleci/project/.kubefiles:/kubefiles $GCR/kubectl:production

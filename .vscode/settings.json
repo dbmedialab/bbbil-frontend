@@ -1,0 +1,38 @@
+{
+	"files.autoSave": "off",
+	// Turn on formatting all files on save
+	"editor.formatOnSave": true,
+	// Turn off formatting on save for javascript (since we will use eslint for this)
+	"[javascript]": {
+		"editor.formatOnSave": false
+	},
+	"[javascriptreact]": {
+		"editor.formatOnSave": false
+	},
+	"[typescript]": {
+		"editor.formatOnSave": false
+	},
+	"[typescriptreact]": {
+		"editor.formatOnSave": false
+	},
+	"[handlebars]": {
+		"editor.formatOnSave": true
+	},
+	// We have yaml files with mustache syntax (aka not valid yaml files)
+	// so let's format these manually instead of with VS code
+	"[yaml]": {
+		"editor.formatOnSave": false
+	},
+	// Turn off Prettier for javascript
+	// We are using several eslint-prettier plugins,
+	// one of which will use Prettier for us when eslint autofixes, so we turn it off in vs code
+	// "prettier.disableLanguages": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+	"eslint.packageManager": "yarn",
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": true
+	},
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"HOSTNAME": "localhost",
+	"PORT": 3000,
+	"HOST": "http://${config:HOSTNAME}:${config:PORT}",
+}

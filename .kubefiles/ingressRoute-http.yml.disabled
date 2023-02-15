@@ -1,0 +1,17 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{env "APPNAME"}}-http
+  namespace: {{env "REPONAME"}}
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: Host(`{{env "APPNAME"}}.{{env "ENV"}}.medialaben.no`)
+# Uncomment the two lines below to redirect HTTP to HTTPS
+#    middlewares:
+#    - name: redirectToHttps@file
+    services:
+    - name: {{env "APPNAME"}}-clusterip
+      port: 80
